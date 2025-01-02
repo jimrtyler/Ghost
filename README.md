@@ -8,14 +8,20 @@ The **Ghost** PowerShell module is designed to enhance the security of Windows s
 - **`Set-Ghost`**: Disables insecure protocols and services to harden the system.
 
 ## Usage Without Downloading
-[code]
-#View What Protocols are Enabled or Disabled
-IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
-Get-Ghost
 
-#Actively Disable Protocols
-Set-Ghost -ICMP -LLMNR -RDP -NetBIOS -SMBv1 -RemoteAssistance -NetworkDiscovery -PSRemoting 
-[/code]
+- **View What Protocols are Enabled or Disabled**
+
+  ```powershell
+  IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
+  Get-Ghost
+
+
+- **Actively Disable Protocols**
+
+  ```powershell
+  IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
+  Set-Ghost -ICMP -LLMNR -RDP -NetBIOS -SMBv1 -RemoteAssistance -NetworkDiscovery -PSRemoting
+
 
 ## Installation
 
