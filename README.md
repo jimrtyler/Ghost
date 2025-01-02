@@ -7,7 +7,7 @@ The **Ghost** PowerShell module is designed to enhance the security of Windows s
 - **`Get-Ghost`**: Assesses the current configuration of protocols and security settings.
 - **`Set-Ghost`**: Disables insecure protocols and services to harden the system.
 
-##Usage Without Downloading
+## Usage Without Downloading
 [code]
 #View What Protocols are Enabled or Disabled
 IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
