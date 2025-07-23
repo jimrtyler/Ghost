@@ -234,13 +234,12 @@ if ($results.EnabledProtocols.Count -gt 0) {
 }
 ```
 
-## 📈 ROI & Business Impact
+## 📈 Business Impact
 
 ### 💵 **Cost Savings**
 - **Average ransomware cost**: $5.13 million (IBM 2024)
 - **Average ransom payment**: $2.73 million (2024)
-- **Ghost implementation cost**: <$1,000 per organization
-- **ROI**: **5,000x+** return on investment
+- **Ghost implementation cost**: Free
 
 ### ⚡ **Performance Benefits**
 - **Reduced attack surface**: 50-90% fewer vulnerable services
