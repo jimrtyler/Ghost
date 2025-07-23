@@ -314,24 +314,6 @@ Set-AzureConditionalAccess -BlockLegacyAuth -RequireMFA -RequireCompliantDevice
 Set-AzurePrivilegedUsers -RemoveInactiveAdmins
 ```
 
-## 🎓 Training & Education
-
-### 📚 **Security Awareness**
-Ghost helps educate teams on:
-- **Attack Vector Understanding**: See exactly what services attackers target
-- **Risk Prioritization**: Color-coded output shows critical vs. low risks
-- **Compliance Requirements**: Built-in security baseline alignment
-- **Incident Prevention**: Proactive vs. reactive security approach
-
-### 📖 **PowerShell Learning**
-Perfect for PowerShell education:
-- **Real-world security scenarios**
-- **API integration examples** 
-- **Automation best practices**
-- **Error handling patterns**
-
-## 🔍 Threat Intelligence Integration
-
 ### 📡 **MITRE ATT&CK Framework Mapping**
 Ghost directly counters these techniques:
 
