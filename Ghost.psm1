@@ -222,11 +222,17 @@ Write-Log "=== Session termination completed ==="
                     $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $DayOfWeek -At $Time
                 }
                 "Monthly" {
-                    # For monthly tasks, we need to create a custom trigger
-                    $trigger = New-ScheduledTaskTrigger -Daily -At $Time
-                    # Modify the trigger to run monthly
-                    $trigger.Repetition.Duration = ""
-                    $trigger.Repetition.Interval = ""
+                    # New-ScheduledTaskTrigger does not support -Monthly natively,
+                    # so we use the CIM class MSFT_TaskMonthlyTrigger directly.
+                    $timeParts = $Time.Split(':')
+                    $startTime = (Get-Date -Hour ([int]$timeParts[0]) -Minute ([int]$timeParts[1]) -Second 0).ToString("yyyy-MM-ddTHH:mm:ss")
+                    $trigger = Get-CimClass -Namespace "Root/Microsoft/Windows/TaskScheduler" -ClassName "MSFT_TaskMonthlyTrigger" |
+                        New-CimInstance -ClientOnly -Property @{
+                            DaysOfMonth  = [uint32]$DayOfMonth
+                            MonthsOfYear = [uint16]0x0FFF  # All 12 months
+                            StartBoundary = $startTime
+                            Enabled      = $true
+                        }
                 }
             }
 
@@ -477,7 +483,29 @@ function Get-GhostTask {
             Write-Host "Task not found: $TaskName" -ForegroundColor Red
         }
     } else {
-        Remove-GhostTask  # Reuse the list functionality
+        # List all Ghost security tasks
+        $ghostTasks = Get-ScheduledTask | Where-Object { $_.TaskName -like "*Update Service" }
+
+        if (-not $ghostTasks -or $ghostTasks.Count -eq 0) {
+            Write-Host "No Ghost security tasks found." -ForegroundColor Yellow
+            return
+        }
+
+        Write-Host "`nGhost Security Tasks:" -ForegroundColor Cyan
+        Write-Host "=====================" -ForegroundColor Cyan
+        foreach ($task in $ghostTasks) {
+            Write-Host "`nTask Name: $($task.TaskName)" -ForegroundColor White
+            Write-Host "State: $($task.State)" -ForegroundColor Gray
+
+            if ($task.Actions.Arguments -match '-File\s+"([^"]+)"') {
+                Write-Host "Script: $($matches[1])" -ForegroundColor Gray
+            }
+
+            $trigger = $task.Triggers[0]
+            if ($trigger) {
+                Write-Host "Schedule: $($trigger.StartBoundary)" -ForegroundColor Gray
+            }
+        }
     }
 }
 
@@ -1435,43 +1463,49 @@ function Set-GroupPolicyRegistry {
     <#
     .SYNOPSIS
     Helper function to set Group Policy registry values.
-    
+
     .DESCRIPTION
     This function creates Group Policy registry entries that will be applied to all domain computers.
-    
+
     .PARAMETER Path
     Registry path for the Group Policy setting.
-    
+
     .PARAMETER Name
     Registry value name.
-    
+
     .PARAMETER Value
     Registry value to set.
-    
+
     .PARAMETER Type
     Registry value type (DWORD, String, etc.).
+
+    .PARAMETER Quiet
+    Suppress the gpupdate reminder message. Useful when called in a loop.
     #>
     param(
         [string]$Path,
         [string]$Name,
         [object]$Value,
-        [string]$Type = "DWORD"
+        [string]$Type = "DWORD",
+        [Switch]$Quiet
     )
-    
+
     try {
         # Create the registry path if it doesn't exist
         if (-not (Test-Path $Path)) {
             New-Item -Path $Path -Force | Out-Null
             Write-Host "Created Group Policy registry path: $Path" -ForegroundColor Yellow
         }
-        
+
         # Set the registry value
         Set-ItemProperty -Path $Path -Name $Name -Value $Value -Type $Type
         Write-Host "Set Group Policy: $Path\$Name = $Value" -ForegroundColor Green
-        
-        # Inform user about GP update requirement
-        Write-Host "Note: Run 'gpupdate /force' or reboot for Group Policy to take effect" -ForegroundColor Cyan
-        
+
+        # Inform user about GP update requirement (once, not in loops)
+        if (-not $Quiet) {
+            Write-Host "Note: Run 'gpupdate /force' or reboot for Group Policy to take effect" -ForegroundColor Cyan
+        }
+
     } catch {
         Write-Host "Failed to set Group Policy registry value: $_" -ForegroundColor Red
     }
@@ -1892,14 +1926,15 @@ function Set-Macros {
                 foreach ($App in $OfficeApps) {
                     $GPPath = "$GPBasePath\$Version\$App\Security"
                     try {
-                        Set-GroupPolicyRegistry -Path $GPPath -Name "VBAWarnings" -Value 4
-                        Set-GroupPolicyRegistry -Path $GPPath -Name "BlockContentExecutionFromInternet" -Value 1
+                        Set-GroupPolicyRegistry -Path $GPPath -Name "VBAWarnings" -Value 4 -Quiet
+                        Set-GroupPolicyRegistry -Path $GPPath -Name "BlockContentExecutionFromInternet" -Value 1 -Quiet
                         Write-Host "Macros disabled for $App $Version via Group Policy" -ForegroundColor Green
                     } catch {
                         Write-Host "Failed to disable macros for $App $Version via Group Policy" -ForegroundColor Yellow
                     }
                 }
             }
+            Write-Host "Note: Run 'gpupdate /force' or reboot for Group Policy to take effect" -ForegroundColor Cyan
         } else {
             throw "Specify either -Enable or -Disable."
         }
@@ -1954,6 +1989,7 @@ function Set-Macros {
 
 # Modified Set-Ghost function with Group Policy support
 function Set-Ghost {
+    [CmdletBinding(SupportsShouldProcess)]
     <#
     .SYNOPSIS
     Disables various protocols and services for hardening the server.
@@ -1962,6 +1998,7 @@ function Set-Ghost {
     This function disables specific protocols and services for increased security. Supported features include RDP,
     ICMP, LLMNR, NetBIOS, LDAP, PowerShell Remoting, SMBv1, Remote Assistance, Network Discovery, and Macros.
     Use -GroupPolicy to apply settings via Group Policy registry instead of direct configuration.
+    Use -WhatIf to preview changes before applying them.
     Written by Jim Tyler.
 
     .PARAMETER RDP
@@ -2012,6 +2049,21 @@ function Set-Ghost {
     .PARAMETER WinRM
     Disables Windows Remote Management.
 
+    .PARAMETER UPnP
+    Disables UPnP Device Host and SSDP Discovery services.
+
+    .PARAMETER WindowsTimeService
+    Hardens Windows Time Service (NTP server) configuration.
+
+    .PARAMETER ServiceBanners
+    Hardens service banners to reduce information disclosure.
+
+    .PARAMETER IPv6Privacy
+    Disables IPv6 reconnaissance vectors.
+
+    .PARAMETER AnonymousAccess
+    Restricts anonymous access (LSA anonymous restrictions).
+
     .PARAMETER GroupPolicy
     Applies all settings via Group Policy registry instead of direct configuration.
 
@@ -2050,6 +2102,11 @@ function Set-Ghost {
         [Switch]$Telemetry,
         [Switch]$GuestAccount,
         [Switch]$WinRM,
+        [Switch]$UPnP,
+        [Switch]$WindowsTimeService,
+        [Switch]$ServiceBanners,
+        [Switch]$IPv6Privacy,
+        [Switch]$AnonymousAccess,
         [Switch]$GroupPolicy,
         [Switch]$Intune
     )
@@ -2087,7 +2144,30 @@ function Set-Ghost {
         
         return
     }
-    t
+
+    # Collect the list of protocols/services being targeted for the WhatIf message
+    $targets = @()
+    if ($RDP) { $targets += "RDP" }; if ($ICMP) { $targets += "ICMP" }; if ($LLMNR) { $targets += "LLMNR" }
+    if ($NetBIOS) { $targets += "NetBIOS" }; if ($LDAP) { $targets += "LDAP" }; if ($PSRemoting) { $targets += "PSRemoting" }
+    if ($SMBv1) { $targets += "SMBv1" }; if ($RemoteAssistance) { $targets += "RemoteAssistance" }
+    if ($NetworkDiscovery) { $targets += "NetworkDiscovery" }; if ($Macros) { $targets += "Macros" }
+    if ($AutoRun) { $targets += "AutoRun" }; if ($USBStorage) { $targets += "USBStorage" }
+    if ($AdminShares) { $targets += "AdminShares" }; if ($Telemetry) { $targets += "Telemetry" }
+    if ($GuestAccount) { $targets += "GuestAccount" }; if ($WinRM) { $targets += "WinRM" }
+    if ($UPnP) { $targets += "UPnP" }; if ($WindowsTimeService) { $targets += "WindowsTimeService" }
+    if ($ServiceBanners) { $targets += "ServiceBanners" }; if ($IPv6Privacy) { $targets += "IPv6Privacy" }
+    if ($AnonymousAccess) { $targets += "AnonymousAccess" }
+
+    if ($targets.Count -eq 0) {
+        Write-Host "No settings specified. Use switches like -RDP, -SMBv1, etc." -ForegroundColor Yellow
+        return
+    }
+
+    $targetDescription = $targets -join ", "
+    if (-not $PSCmdlet.ShouldProcess($targetDescription, "Disable/Harden")) {
+        return
+    }
+
     if ($GroupPolicy) {
         Write-Host "Applying security hardening via Group Policy registry settings..." -ForegroundColor Cyan
         Write-Host "Note: Group Policy settings will apply domain-wide and require 'gpupdate /force' or reboot" -ForegroundColor Yellow
@@ -2197,6 +2277,51 @@ function Set-Ghost {
         Set-WinRM -Disable
     }
 
+    if ($UPnP) {
+        Write-Host "Disabling UPnP..."
+        if ($GroupPolicy) {
+            Set-UPnP -Disable -GroupPolicy
+        } else {
+            Set-UPnP -Disable
+        }
+    }
+
+    if ($WindowsTimeService) {
+        Write-Host "Hardening Windows Time Service..."
+        if ($GroupPolicy) {
+            Set-WindowsTimeService -Harden -GroupPolicy
+        } else {
+            Set-WindowsTimeService -Harden
+        }
+    }
+
+    if ($ServiceBanners) {
+        Write-Host "Hardening Service Banners..."
+        if ($GroupPolicy) {
+            Set-ServiceBanners -Harden -GroupPolicy
+        } else {
+            Set-ServiceBanners -Harden
+        }
+    }
+
+    if ($IPv6Privacy) {
+        Write-Host "Disabling IPv6 reconnaissance vectors..."
+        if ($GroupPolicy) {
+            Set-IPv6Privacy -Disable -GroupPolicy
+        } else {
+            Set-IPv6Privacy -Disable
+        }
+    }
+
+    if ($AnonymousAccess) {
+        Write-Host "Restricting anonymous access..."
+        if ($GroupPolicy) {
+            Set-AnonymousAccess -Restrict -GroupPolicy
+        } else {
+            Set-AnonymousAccess -Restrict
+        }
+    }
+
     if ($GroupPolicy) {
         Write-Host "Group Policy hardening complete!" -ForegroundColor Green
         Write-Host "Run 'gpupdate /force' to apply changes immediately, or wait for next GP refresh" -ForegroundColor Cyan
@@ -2207,182 +2332,137 @@ function Set-Ghost {
     }
 }
 
-function Set-ICMP {
-    <#
-    .SYNOPSIS
-    Enables or disables ICMP (ping) for the server.
-   
-    .DESCRIPTION
-    This function manages ICMP by adding or removing firewall rules that block ICMP packets.
-    Use `-Enable` to allow ICMP traffic or `-Disable` to block ICMP traffic.
-   
-    .PARAMETER Enable
-    Allows ICMP traffic.
-
-    .PARAMETER Disable
-    Blocks ICMP traffic.
-
-    .EXAMPLE
-    Set-ICMP -Enable
-    Enables ICMP traffic.
-
-    .EXAMPLE
-    Set-ICMP -Disable
-    Disables ICMP traffic.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) {
-        throw "Specify either -Enable or -Disable, not both."
-    }
-
-    if ($Enable) {
-        Remove-NetFirewallRule -DisplayName "Disable ICMPv4-In" -ErrorAction SilentlyContinue
-        Remove-NetFirewallRule -DisplayName "Disable ICMPv6-In" -ErrorAction SilentlyContinue
-        Write-Host "ICMP enabled"
-    } elseif ($Disable) {
-        New-NetFirewallRule -DisplayName "Disable ICMPv4-In" -Protocol ICMPv4 -IcmpType 8 -Action Block
-        New-NetFirewallRule -DisplayName "Disable ICMPv6-In" -Protocol ICMPv6 -Action Block
-        Write-Host "ICMP disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
-    }
-}
-
-function Set-RDP {
-    <#
-    .SYNOPSIS
-    Enables or disables Remote Desktop Protocol (RDP).
-
-    .DESCRIPTION
-    This function configures RDP settings by modifying registry values and controlling the TermService service.
-    Use `-Enable` to allow RDP access or `-Disable` to block RDP access.
-
-    .PARAMETER Enable
-    Enables RDP access.
-
-    .PARAMETER Disable
-    Disables RDP access.
-
-    .EXAMPLE
-    Set-RDP -Enable
-    Enables RDP access.
-
-    .EXAMPLE
-    Set-RDP -Disable
-    Disables RDP access.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) {
-        throw "Specify either -Enable or -Disable, not both."
-    }
-
-    if ($Enable) {
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-        #Start-Service -Name "TermService"
-        Set-Service -Name "TermService" -StartupType Automatic
-        Write-Host "RDP enabled"
-    } elseif ($Disable) {
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 1
-        Stop-Service -Name "TermService" -Force
-        Set-Service -Name "TermService" -StartupType Disabled
-        Write-Host "RDP disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
-    }
-}
-
 function Set-LLMNR {
     <#
     .SYNOPSIS
-    Disables Link-Local Multicast Name Resolution (LLMNR).
+    Enables or disables Link-Local Multicast Name Resolution (LLMNR).
 
     .DESCRIPTION
-    This function configures the registry to disable LLMNR by setting the `EnableMulticast` value to `0`.
+    This function configures the registry to control LLMNR by setting the `EnableMulticast` value.
     If the required registry path does not exist, it creates the path before setting the value.
+
+    .PARAMETER Enable
+    Enables LLMNR.
+
+    .PARAMETER Disable
+    Disables LLMNR.
 
     .EXAMPLE
     Set-LLMNR -Disable
     Disables LLMNR on the system.
+
+    .EXAMPLE
+    Set-LLMNR -Enable
+    Re-enables LLMNR on the system.
     #>
     param(
+        [Switch]$Enable,
         [Switch]$Disable
     )
 
-    if ($Disable) {
-        Write-Host "Disabling LLMNR..."
-        $RegistryPath = "HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient"
-        if (-not (Test-Path $RegistryPath)) {
-            Write-Host "Registry path '$RegistryPath' does not exist. Creating path..."
-            New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT" -Name "DNSClient" -Force | Out-Null
-        }
+    if ($Enable -and $Disable) {
+        throw "Specify either -Enable or -Disable, not both."
+    }
 
-        Set-ItemProperty -Path $RegistryPath -Name "EnableMulticast" -Value 0
-        Write-Host "LLMNR has been disabled."
+    $RegistryPath = "HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient"
+
+    if ($Disable) {
+        try {
+            if (-not (Test-Path $RegistryPath)) {
+                New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT" -Name "DNSClient" -Force | Out-Null
+            }
+            Set-ItemProperty -Path $RegistryPath -Name "EnableMulticast" -Value 0 -Type DWord -ErrorAction Stop
+            Write-Host "LLMNR disabled." -ForegroundColor Green
+        } catch {
+            Write-Host "Failed to disable LLMNR: $_" -ForegroundColor Red
+        }
+    } elseif ($Enable) {
+        try {
+            if (-not (Test-Path $RegistryPath)) {
+                New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT" -Name "DNSClient" -Force | Out-Null
+            }
+            Set-ItemProperty -Path $RegistryPath -Name "EnableMulticast" -Value 1 -Type DWord -ErrorAction Stop
+            Write-Host "LLMNR enabled." -ForegroundColor Green
+        } catch {
+            Write-Host "Failed to enable LLMNR: $_" -ForegroundColor Red
+        }
     } else {
-        Write-Host "No action taken. Use -Disable to disable LLMNR."
+        throw "Specify either -Enable or -Disable."
     }
 }
-
-
-# Additional functions for Set-NetBIOS, Set-LDAP, Set-PSRemoting, Set-SMBv1,
-# Set-Firewall, Set-RemoteAssistance, and Set-NetworkDiscovery follow the same
-# structure as the above examples. Detailed comments and -Enable/-Disable
-# parameters are included for consistency.
-
-
 
 function Set-NetBIOS {
     <#
     .SYNOPSIS
-    Disables NetBIOS over TCP/IP on all network adapters.
+    Enables or disables NetBIOS over TCP/IP on all network adapters.
 
     .DESCRIPTION
-    This function disables NetBIOS by configuring the CIM class `Win32_NetworkAdapterConfiguration`.
-    It ensures that all adapters have NetBIOS set to `Disabled`.
+    This function configures NetBIOS by using the CIM class `Win32_NetworkAdapterConfiguration`.
+    Use `-Disable` to set NetBIOS to Disabled (2) or `-Enable` to set it to Default (0).
+
+    .PARAMETER Enable
+    Enables NetBIOS (restores default).
+
+    .PARAMETER Disable
+    Disables NetBIOS over TCP/IP on all network adapters.
 
     .EXAMPLE
     Set-NetBIOS -Disable
     Disables NetBIOS over TCP/IP on all network adapters.
+
+    .EXAMPLE
+    Set-NetBIOS -Enable
+    Re-enables NetBIOS over TCP/IP on all network adapters.
     #>
     param(
+        [Switch]$Enable,
         [Switch]$Disable
     )
 
-    if ($Disable) {
-        # Disable NetBIOS on all network interfaces
-        try {
-            # Retrieve all network adapters where IP is enabled
-            $Adapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled }
+    if ($Enable -and $Disable) {
+        throw "Specify either -Enable or -Disable, not both."
+    }
 
-            if ($Adapters) {
-                Write-Host "Disabling NetBIOS on all network interfaces..." -ForegroundColor Yellow
-                foreach ($Adapter in $Adapters) {
-                    # Call SetTcpipNetbios method with positional argument 2 (Disable NetBIOS)
-                    $Result = $Adapter | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 2 }
-                    
-                    if ($Result.ReturnValue -eq 0) {
-                        Write-Host "NetBIOS successfully disabled on adapter: $($Adapter.Description)" -ForegroundColor Green
-                    } else {
-                        Write-Host "Failed to disable NetBIOS on adapter: $($Adapter.Description)" -ForegroundColor Red
-                    }
+    if ($Disable) {
+        try {
+            $Adapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled }
+            if (-not $Adapters) {
+                Write-Host "No IP-enabled adapters found." -ForegroundColor Yellow
+                return
+            }
+            foreach ($Adapter in $Adapters) {
+                $Result = $Adapter | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 2 } -ErrorAction SilentlyContinue
+                if ($Result -and $Result.ReturnValue -eq 0) {
+                    Write-Host "NetBIOS disabled on adapter: $($Adapter.Description)" -ForegroundColor Green
+                } else {
+                    Write-Host "NetBIOS: unable to change on adapter: $($Adapter.Description) (result: $($Result.ReturnValue))" -ForegroundColor Yellow
                 }
-            } else {
-                Write-Host "No network interfaces found with IP enabled." -ForegroundColor Yellow
             }
         } catch {
-            Write-Host "An error occurred while disabling NetBIOS: $_" -ForegroundColor Red
+            Write-Host "Error disabling NetBIOS: $_" -ForegroundColor Red
         }
+    } elseif ($Enable) {
+        try {
+            $Adapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled }
+            if (-not $Adapters) {
+                Write-Host "No IP-enabled adapters found." -ForegroundColor Yellow
+                return
+            }
+            foreach ($Adapter in $Adapters) {
+                $Result = $Adapter | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 0 } -ErrorAction SilentlyContinue
+                if ($Result -and $Result.ReturnValue -eq 0) {
+                    Write-Host "NetBIOS enabled (default) on adapter: $($Adapter.Description)" -ForegroundColor Green
+                } else {
+                    Write-Host "NetBIOS: unable to change on adapter: $($Adapter.Description) (result: $($Result.ReturnValue))" -ForegroundColor Yellow
+                }
+            }
+        } catch {
+            Write-Host "Error enabling NetBIOS: $_" -ForegroundColor Red
+        }
+    } else {
+        throw "Specify either -Enable or -Disable."
+    }
 }
-
-}
-
-
 
 function Set-LDAP {
     <#
@@ -2415,28 +2495,34 @@ function Set-LDAP {
         throw "Specify either -Enable or -Disable, not both."
     }
 
-    if ($Enable) {
-        #Start-Service -Name "NTDS"
-        Set-Service -Name "NTDS" -StartupType Automatic
-        Write-Host "LDAP enabled"
-    } elseif ($Disable) {
-        Stop-Service -Name "NTDS" -Force
-        Set-Service -Name "NTDS" -StartupType Disabled
-        Write-Host "LDAP disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
+    try {
+        if ($Enable) {
+            Set-Service -Name "NTDS" -StartupType Automatic -ErrorAction SilentlyContinue
+            Start-Service -Name "NTDS" -ErrorAction SilentlyContinue
+            Write-Host "LDAP (NTDS) enabled." -ForegroundColor Green
+        } elseif ($Disable) {
+            Stop-Service -Name "NTDS" -Force -ErrorAction SilentlyContinue
+            Set-Service -Name "NTDS" -StartupType Disabled -ErrorAction SilentlyContinue
+            Write-Host "LDAP (NTDS) disabled." -ForegroundColor Green
+        } else {
+            throw "Specify either -Enable or -Disable."
+        }
+    } catch {
+        Write-Host "Failed to configure LDAP/NTDS: $_" -ForegroundColor Red
     }
 }
-
 
 function Set-PSRemoting {
     <#
     .SYNOPSIS
-    Disables PowerShell Remoting.
+    Enables or disables PowerShell Remoting.
 
     .DESCRIPTION
-    This function disables PowerShell Remoting by configuring the WSMan service. It also accounts for cases
-    where the WSMan provider or configuration cannot be detected.
+    This function manages PowerShell Remoting by configuring the WSMan service. It also accounts for cases
+    where the WSMan provider or configuration cannot be detected, falling back to WinRM service control.
+
+    .PARAMETER Enable
+    Enables PowerShell Remoting.
 
     .PARAMETER Disable
     Disables PowerShell Remoting.
@@ -2444,86 +2530,52 @@ function Set-PSRemoting {
     .EXAMPLE
     Set-PSRemoting -Disable
     Disables PowerShell Remoting.
-    #>
-    param(
-        [Switch]$Disable
-    )
-
-    if ($Disable) {
-        Write-Host "Attempting to disable PowerShell Remoting..."
-
-        # Check if WSMan provider is available
-        if (-not (Test-Path "WSMan:\localhost\Service")) {
-            Write-Host "PowerShell Remoting status cannot be detected. WSMan provider not available." -ForegroundColor Yellow
-            return
-        }
-
-        try {
-            # Check current status of PowerShell Remoting
-            $PSRemotingStatus = (Get-Item -Path "WSMan:\localhost\Service").Enabled -eq $true
-
-            if ($PSRemotingStatus) {
-                Write-Host "PowerShell Remoting is currently enabled. Disabling..."
-                Disable-PSRemoting -Force
-                Write-Host "PowerShell Remoting has been disabled." -ForegroundColor Green
-            } else {
-                Write-Host "PowerShell Remoting is already disabled." -ForegroundColor Green
-            }
-        } catch {
-            Write-Host "An error occurred while attempting to disable PowerShell Remoting: $_" -ForegroundColor Red
-        }
-    } else {
-        Write-Host "No action taken. Use -Disable to disable PowerShell Remoting."
-    }
-}
-
-
-
-
-
-function Set-SMBv1 {
-    <#
-    .SYNOPSIS
-    Enables or disables SMBv1 protocol.
-
-    .DESCRIPTION
-    This function modifies SMB server configuration to enable or disable SMBv1.
-    Use `-Enable` to allow SMBv1 or `-Disable` to block it.
-
-    .PARAMETER Enable
-    Enables SMBv1.
-
-    .PARAMETER Disable
-    Disables SMBv1.
 
     .EXAMPLE
-    Set-SMBv1 -Enable
-    Enables SMBv1.
-
-    .EXAMPLE
-    Set-SMBv1 -Disable
-    Disables SMBv1.
+    Set-PSRemoting -Enable
+    Enables PowerShell Remoting.
     #>
     param(
         [Switch]$Enable,
         [Switch]$Disable
     )
+
     if ($Enable -and $Disable) {
         throw "Specify either -Enable or -Disable, not both."
     }
 
-    if ($Enable) {
-        Set-SmbServerConfiguration -EnableSMB1Protocol $true -Force
-        Write-Host "SMBv1 enabled"
-    } elseif ($Disable) {
-        Set-SmbServerConfiguration -EnableSMB1Protocol $false -Force
-        Write-Host "SMBv1 disabled"
+    if ($Disable) {
+        try {
+            if (-not (Test-Path "WSMan:\localhost\Service")) {
+                Write-Host "WSMan provider not available; attempting to stop WinRM service." -ForegroundColor Yellow
+                if (Get-Service -Name "WinRM" -ErrorAction SilentlyContinue) {
+                    Stop-Service -Name "WinRM" -Force -ErrorAction SilentlyContinue
+                    Set-Service -Name "WinRM" -StartupType Disabled -ErrorAction SilentlyContinue
+                }
+                Write-Host "PowerShell Remoting disabled (best-effort)." -ForegroundColor Green
+                return
+            }
+            $status = (Get-Item -Path "WSMan:\localhost\Service").Enabled
+            if ($status) {
+                Disable-PSRemoting -Force -ErrorAction SilentlyContinue
+                Write-Host "PowerShell Remoting disabled." -ForegroundColor Green
+            } else {
+                Write-Host "PowerShell Remoting already disabled." -ForegroundColor Green
+            }
+        } catch {
+            Write-Host "Error disabling PowerShell Remoting: $_" -ForegroundColor Red
+        }
+    } elseif ($Enable) {
+        try {
+            Enable-PSRemoting -Force -ErrorAction SilentlyContinue
+            Write-Host "PowerShell Remoting enabled." -ForegroundColor Green
+        } catch {
+            Write-Host "Error enabling PowerShell Remoting: $_" -ForegroundColor Red
+        }
     } else {
         throw "Specify either -Enable or -Disable."
     }
 }
-
-
 
 function Set-Firewall {
     <#
@@ -2556,18 +2608,20 @@ function Set-Firewall {
         throw "Specify either -Enable or -Disable, not both."
     }
 
-    if ($Enable) {
-        Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True
-        Write-Host "Firewall enabled"
-    } elseif ($Disable) {
-        Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled False
-        Write-Host "Firewall disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
+    try {
+        if ($Enable) {
+            Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True -ErrorAction SilentlyContinue
+            Write-Host "Firewall enabled for all profiles." -ForegroundColor Green
+        } elseif ($Disable) {
+            Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled False -ErrorAction SilentlyContinue
+            Write-Host "Firewall disabled for all profiles." -ForegroundColor Green
+        } else {
+            throw "Specify either -Enable or -Disable."
+        }
+    } catch {
+        Write-Host "Failed to configure firewall: $_" -ForegroundColor Red
     }
 }
-
-
 
 function Set-RemoteAssistance {
     <#
@@ -2600,17 +2654,20 @@ function Set-RemoteAssistance {
         throw "Specify either -Enable or -Disable, not both."
     }
 
-    if ($Enable) {
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 1
-        Write-Host "Remote Assistance enabled"
-    } elseif ($Disable) {
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 0
-        Write-Host "Remote Assistance disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
+    try {
+        if ($Enable) {
+            Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 1 -ErrorAction SilentlyContinue
+            Write-Host "Remote Assistance enabled." -ForegroundColor Green
+        } elseif ($Disable) {
+            Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 0 -ErrorAction SilentlyContinue
+            Write-Host "Remote Assistance disabled." -ForegroundColor Green
+        } else {
+            throw "Specify either -Enable or -Disable."
+        }
+    } catch {
+        Write-Host "Failed to configure Remote Assistance: $_" -ForegroundColor Red
     }
 }
-
 
 function Set-NetworkDiscovery {
     <#
@@ -2643,360 +2700,6 @@ function Set-NetworkDiscovery {
         throw "Specify either -Enable or -Disable, not both."
     }
 
-    if ($Enable) {
-        Set-Service -Name "FDResPub" -StartupType Automatic
-        Set-Service -Name "SSDPDiscovery" -StartupType Automatic
-        #Start-Service -Name "FDResPub"
-        #Start-Service -Name "SSDPDiscovery"
-        Write-Host "Network Discovery enabled"
-    } elseif ($Disable) {
-        Stop-Service -Name "FDResPub"
-        Stop-Service -Name "SSDPDiscovery"
-        Set-Service -Name "FDResPub" -StartupType Disabled
-        Set-Service -Name "SSDPDiscovery" -StartupType Disabled
-        Write-Host "Network Discovery disabled"
-    } else {
-        throw "Specify either -Enable or -Disable."
-    }
-}
-
-
-
-
-
-
-
-
-
-# Consolidated Set-Ghost and helper functions (to replace $SELECTION_PLACEHOLDER$)
-function Set-Ghost {
-    <#
-    .SYNOPSIS
-    Disables various protocols and services for hardening the server.
-
-    .DESCRIPTION
-    This function disables specific protocols and services for increased security.
-    Supports RDP, ICMP, LLMNR, NetBIOS, LDAP, PowerShell Remoting, SMBv1,
-    Remote Assistance, Network Discovery, AutoRun, USBStorage, AdminShares,
-    Telemetry, GuestAccount, WinRM and allows Group Policy or Intune deployment.
-
-    .PARAMETER RDP,ICMP,LLMNR,NetBIOS,LDAP,PSRemoting,SMBv1,RemoteAssistance,NetworkDiscovery
-    .PARAMETER AutoRun,USBStorage,AdminShares,Telemetry,GuestAccount,WinRM
-    .PARAMETER GroupPolicy
-    Apply via Group Policy registry keys.
-    .PARAMETER Intune
-    Create Intune policies instead of local changes.
-    #>
-    param(
-        [Switch]$RDP,
-        [Switch]$ICMP,
-        [Switch]$LLMNR,
-        [Switch]$NetBIOS,
-        [Switch]$LDAP,
-        [Switch]$PSRemoting,
-        [Switch]$SMBv1,
-        [Switch]$RemoteAssistance,
-        [Switch]$NetworkDiscovery,
-        [Switch]$AutoRun,
-        [Switch]$USBStorage,
-        [Switch]$AdminShares,
-        [Switch]$Telemetry,
-        [Switch]$GuestAccount,
-        [Switch]$WinRM,
-        [Switch]$GroupPolicy,
-        [Switch]$Intune
-    )
-
-    if ($GroupPolicy -and $Intune) {
-        throw "Cannot specify both -GroupPolicy and -Intune. Choose one deployment method."
-    }
-
-    if ($Intune) {
-        Write-Host "Deploying Ghost security settings via Microsoft Intune..." -ForegroundColor Cyan
-        $IntuneSettings = @{}
-        if ($RDP) { $IntuneSettings.RDP = $true }
-        if ($ICMP) { $IntuneSettings.ICMP = $true }
-        if ($LLMNR) { $IntuneSettings.LLMNR = $true }
-        if ($NetBIOS) { $IntuneSettings.NetBIOS = $true }
-        if ($LDAP) { $IntuneSettings.LDAP = $true }
-        if ($PSRemoting) { $IntuneSettings.PSRemoting = $true }
-        if ($SMBv1) { $IntuneSettings.SMBv1 = $true }
-        if ($RemoteAssistance) { $IntuneSettings.RemoteAssistance = $true }
-        if ($NetworkDiscovery) { $IntuneSettings.NetworkDiscovery = $true }
-        if ($AutoRun) { $IntuneSettings.AutoRun = $true }
-        if ($USBStorage) { $IntuneSettings.USBStorage = $true }
-        if ($AdminShares) { $IntuneSettings.AdminShares = $true }
-        if ($Telemetry) { $IntuneSettings.Telemetry = $true }
-        if ($GuestAccount) { $IntuneSettings.GuestAccount = $true }
-        if ($WinRM) { $IntuneSettings.WinRM = $true }
-
-        if ($IntuneSettings.Count -gt 0) {
-            Set-IntuneGhost -Settings $IntuneSettings -Interactive
-        } else {
-            Write-Host "No settings specified for Intune deployment." -ForegroundColor Yellow
-        }
-        return
-    }
-
-    Write-Host "Status prior to disabling:" -ForegroundColor Cyan
-    Get-Ghost
-
-    if ($RDP) {
-        Write-Host "Disabling RDP..."
-        if ($GroupPolicy) { Set-RDP -Disable -GroupPolicy } else { Set-RDP -Disable }
-    }
-
-    if ($ICMP) {
-        Write-Host "Disabling ICMP..."
-        if ($GroupPolicy) { Set-ICMP -Disable -GroupPolicy } else { Set-ICMP -Disable }
-    }
-
-    if ($LLMNR) {
-        Write-Host "Disabling LLMNR..."
-        Set-LLMNR -Disable
-    }
-
-    if ($NetBIOS) {
-        Write-Host "Disabling NetBIOS..."
-        Set-NetBIOS -Disable
-    }
-
-    if ($LDAP) {
-        Write-Host "Disabling LDAP..."
-        Set-LDAP -Disable
-    }
-
-    if ($PSRemoting) {
-        Write-Host "Disabling PowerShell Remoting..."
-        Set-PSRemoting -Disable
-    }
-
-    if ($SMBv1) {
-        Write-Host "Disabling SMBv1..."
-        if ($GroupPolicy) { Set-SMBv1 -Disable -GroupPolicy } else { Set-SMBv1 -Disable }
-    }
-
-    if ($RemoteAssistance) {
-        Write-Host "Disabling Remote Assistance..."
-        if ($GroupPolicy) { Set-RemoteAssistance -Disable } else { Set-RemoteAssistance -Disable }
-    }
-
-    if ($NetworkDiscovery) {
-        Write-Host "Disabling Network Discovery..."
-        Set-NetworkDiscovery -Disable
-    }
-
-    if ($AutoRun) {
-        Write-Host "Disabling AutoRun/AutoPlay..."
-        if ($GroupPolicy) { Set-AutoRun -Disable -GroupPolicy } else { Set-AutoRun -Disable }
-    }
-
-    if ($USBStorage) {
-        Write-Host "Disabling USB Storage..."
-        Set-USBStorage -Disable -GroupPolicy:$GroupPolicy
-    }
-
-    if ($AdminShares) {
-        Write-Host "Disabling Administrative Shares..."
-        Set-AdminShares -Disable -GroupPolicy:$GroupPolicy
-    }
-
-    if ($Telemetry) {
-        Write-Host "Disabling Telemetry..."
-        Set-Telemetry -Disable -GroupPolicy:$GroupPolicy
-    }
-
-    if ($GuestAccount) {
-        Write-Host "Disabling Guest Account..."
-        Set-GuestAccount -Disable -GroupPolicy:$GroupPolicy
-    }
-
-    if ($WinRM) {
-        Write-Host "Disabling WinRM..."
-        Set-WinRM -Disable
-    }
-
-    Write-Host "Protocol and service disabling complete." -ForegroundColor Green
-    Write-Host "Status after disabling:" -ForegroundColor Cyan
-    Get-Ghost
-}
-
-function Set-LLMNR {
-    <#
-    .SYNOPSIS
-    Disable LLMNR via registry.
-    #>
-    param(
-        [Switch]$Disable
-    )
-    if ($Disable) {
-        try {
-            $RegistryPath = "HKLM:\Software\Policies\Microsoft\Windows NT\DNSClient"
-            if (-not (Test-Path $RegistryPath)) {
-                New-Item -Path "HKLM:\Software\Policies\Microsoft\Windows NT" -Name "DNSClient" -Force | Out-Null
-            }
-            Set-ItemProperty -Path $RegistryPath -Name "EnableMulticast" -Value 0 -Type DWord -ErrorAction Stop
-            Write-Host "LLMNR disabled." -ForegroundColor Green
-        } catch {
-            Write-Host "Failed to disable LLMNR: $_" -ForegroundColor Red
-        }
-    } else {
-        Write-Host "No action taken. Use -Disable to disable LLMNR." -ForegroundColor Yellow
-    }
-}
-
-function Set-NetBIOS {
-    <#
-    .SYNOPSIS
-    Disable NetBIOS over TCP/IP on all adapters.
-    #>
-    param(
-        [Switch]$Disable
-    )
-    if ($Disable) {
-        try {
-            $Adapters = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPEnabled }
-            if (-not $Adapters) {
-                Write-Host "No IP-enabled adapters found." -ForegroundColor Yellow
-                return
-            }
-            foreach ($Adapter in $Adapters) {
-                $result = $Adapter | Invoke-CimMethod -MethodName SetTcpipNetbios -Arguments @{ TcpipNetbiosOptions = 2 } -ErrorAction SilentlyContinue
-                if ($result -and $result.ReturnValue -eq 0) {
-                    Write-Host "NetBIOS disabled on adapter: $($Adapter.Description)" -ForegroundColor Green
-                } else {
-                    Write-Host "NetBIOS: unable to change on adapter: $($Adapter.Description) (result: $($result.ReturnValue))" -ForegroundColor Yellow
-                }
-            }
-        } catch {
-            Write-Host "Error disabling NetBIOS: $_" -ForegroundColor Red
-        }
-    } else {
-        Write-Host "No action taken. Use -Disable to disable NetBIOS." -ForegroundColor Yellow
-    }
-}
-
-function Set-LDAP {
-    <#
-    .SYNOPSIS
-    Start/stop NTDS (LDAP) service.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) { throw "Specify either -Enable or -Disable, not both." }
-    try {
-        if ($Enable) {
-            Set-Service -Name "NTDS" -StartupType Automatic -ErrorAction SilentlyContinue
-            Start-Service -Name "NTDS" -ErrorAction SilentlyContinue
-            Write-Host "LDAP (NTDS) enabled." -ForegroundColor Green
-        } elseif ($Disable) {
-            Stop-Service -Name "NTDS" -Force -ErrorAction SilentlyContinue
-            Set-Service -Name "NTDS" -StartupType Disabled -ErrorAction SilentlyContinue
-            Write-Host "LDAP (NTDS) disabled." -ForegroundColor Green
-        } else {
-            throw "Specify either -Enable or -Disable."
-        }
-    } catch {
-        Write-Host "Failed to configure LDAP/NTDS: $_" -ForegroundColor Red
-    }
-}
-
-function Set-PSRemoting {
-    <#
-    .SYNOPSIS
-    Disable PowerShell Remoting (WSMan).
-    #>
-    param(
-        [Switch]$Disable
-    )
-    if ($Disable) {
-        try {
-            if (-not (Test-Path "WSMan:\localhost\Service")) {
-                Write-Host "WSMan provider not available; attempting to stop WinRM service." -ForegroundColor Yellow
-                if (Get-Service -Name "WinRM" -ErrorAction SilentlyContinue) {
-                    Stop-Service -Name "WinRM" -Force -ErrorAction SilentlyContinue
-                    Set-Service -Name "WinRM" -StartupType Disabled -ErrorAction SilentlyContinue
-                }
-                Write-Host "PowerShell Remoting disabled (best-effort)." -ForegroundColor Green
-                return
-            }
-            $status = (Get-Item -Path "WSMan:\localhost\Service").Enabled
-            if ($status) {
-                Disable-PSRemoting -Force -ErrorAction SilentlyContinue
-                Write-Host "PowerShell Remoting disabled." -ForegroundColor Green
-            } else {
-                Write-Host "PowerShell Remoting already disabled." -ForegroundColor Green
-            }
-        } catch {
-            Write-Host "Error disabling PowerShell Remoting: $_" -ForegroundColor Red
-        }
-    } else {
-        Write-Host "No action taken. Use -Disable to disable PowerShell Remoting." -ForegroundColor Yellow
-    }
-}
-
-function Set-Firewall {
-    <#
-    .SYNOPSIS
-    Enable/disable Windows Firewall for all profiles.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) { throw "Specify either -Enable or -Disable, not both." }
-    try {
-        if ($Enable) {
-            Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled True -ErrorAction SilentlyContinue
-            Write-Host "Firewall enabled for all profiles." -ForegroundColor Green
-        } elseif ($Disable) {
-            Set-NetFirewallProfile -Profile Domain,Private,Public -Enabled False -ErrorAction SilentlyContinue
-            Write-Host "Firewall disabled for all profiles." -ForegroundColor Green
-        } else {
-            throw "Specify either -Enable or -Disable."
-        }
-    } catch {
-        Write-Host "Failed to configure firewall: $_" -ForegroundColor Red
-    }
-}
-
-function Set-RemoteAssistance {
-    <#
-    .SYNOPSIS
-    Enable/disable Remote Assistance.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) { throw "Specify either -Enable or -Disable, not both." }
-    try {
-        if ($Enable) {
-            Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 1 -ErrorAction SilentlyContinue
-            Write-Host "Remote Assistance enabled." -ForegroundColor Green
-        } elseif ($Disable) {
-            Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Remote Assistance" -Name "fAllowToGetHelp" -Value 0 -ErrorAction SilentlyContinue
-            Write-Host "Remote Assistance disabled." -ForegroundColor Green
-        } else {
-            throw "Specify either -Enable or -Disable."
-        }
-    } catch {
-        Write-Host "Failed to configure Remote Assistance: $_" -ForegroundColor Red
-    }
-}
-
-function Set-NetworkDiscovery {
-    <#
-    .SYNOPSIS
-    Enable/disable Network Discovery by controlling FDResPub and SSDPDiscovery services.
-    #>
-    param(
-        [Switch]$Enable,
-        [Switch]$Disable
-    )
-    if ($Enable -and $Disable) { throw "Specify either -Enable or -Disable, not both." }
     try {
         if ($Enable) {
             foreach ($svc in @("FDResPub","SSDPDiscovery")) {
@@ -3021,10 +2724,6 @@ function Set-NetworkDiscovery {
         Write-Host "Failed to configure Network Discovery: $_" -ForegroundColor Red
     }
 }
-
-
-
-
 
 function Write-Status {
     param(
@@ -3060,7 +2759,8 @@ function Get-Ghost {
     #>
 
     # Helper to report and collect enabled params (paramName must match Set-Ghost parameter name)
-    $EnabledProtocols = @()
+    # Use ArrayList so .Add() mutates the same object across nested function scope
+    $EnabledProtocols = [System.Collections.ArrayList]::new()
     function ReportStatus {
         param(
             [string]$DisplayName,
@@ -3069,7 +2769,7 @@ function Get-Ghost {
         )
         Write-Status -ServiceName $DisplayName -IsEnabled $Status
         if ($Status -eq $true -and $ParamName) {
-            $EnabledProtocols += $ParamName
+            [void]$EnabledProtocols.Add($ParamName)
         }
     }
 
@@ -3321,7 +3021,7 @@ function Get-Ghost {
             } elseif ($ExecutionPolicy -eq "RemoteSigned") {
                 Write-Host "Execution Policy: RemoteSigned (Consider changing to 'Restricted' for maximum safety)" -ForegroundColor Yellow
             } elseif ($ExecutionPolicy -eq "Restricted") {
-                Write-Host "Execution Policy: Restricted (Most restrictive — good)" -ForegroundColor Green
+                Write-Host "Execution Policy: Restricted (Most restrictive - good)" -ForegroundColor Green
             } else {
                 Write-Host "Execution Policy: $ExecutionPolicy (Adequately restrictive)" -ForegroundColor Green
             }
@@ -3671,7 +3371,6 @@ Export-ModuleMember -Function `
     Set-UPnP, Set-WindowsTimeService, Set-ServiceBanners, Set-IPv6Privacy, Set-AnonymousAccess, `
     Connect-IntuneGhost, Set-IntuneGhost, `
     New-IntuneDeviceRestrictionPolicy, New-IntuneEndpointSecurityPolicy, New-IntuneOfficePolicy, New-IntunePowerShellScript, `
-    Set-GroupPolicyRegistry, Write-Status, `
     Set-ICMP, Set-RDP, Set-SMBv1, Set-AutoRun, Set-Macros, Set-LLMNR, Set-NetBIOS, Set-LDAP, Set-PSRemoting, `
     Set-Firewall, Set-RemoteAssistance, Set-NetworkDiscovery, `
     Set-USBStorage, Set-WinRM, Set-AdminShares, Set-Telemetry, Set-GuestAccount, `
