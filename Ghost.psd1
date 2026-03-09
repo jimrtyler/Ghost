@@ -30,7 +30,7 @@ CompanyName = 'PowerShellEngineer.com'
 Copyright = '(c) Jim Tyler. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'This module contains allows you to easily assess and disable various protocols on a Windows server or desktop, hardening your environment.'
+Description = 'This module allows you to easily assess and disable various protocols on a Windows server or desktop, hardening your environment.'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '5.1'
@@ -69,16 +69,25 @@ PowerShellVersion = '5.1'
 # NestedModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = '*'
+FunctionsToExport = @(
+    'Set-UPnP', 'Set-WindowsTimeService', 'Set-ServiceBanners', 'Set-IPv6Privacy', 'Set-AnonymousAccess',
+    'Connect-IntuneGhost', 'Set-IntuneGhost',
+    'New-IntuneDeviceRestrictionPolicy', 'New-IntuneEndpointSecurityPolicy', 'New-IntuneOfficePolicy', 'New-IntunePowerShellScript',
+    'Set-ICMP', 'Set-RDP', 'Set-SMBv1', 'Set-AutoRun', 'Set-Macros', 'Set-LLMNR', 'Set-NetBIOS', 'Set-LDAP', 'Set-PSRemoting',
+    'Set-Firewall', 'Set-RemoteAssistance', 'Set-NetworkDiscovery',
+    'Set-USBStorage', 'Set-WinRM', 'Set-AdminShares', 'Set-Telemetry', 'Set-GuestAccount',
+    'Get-Ghost', 'Set-Ghost',
+    'Set-GhostTask', 'Remove-GhostTask', 'Get-GhostTask'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
-CmdletsToExport = '*'
+CmdletsToExport = @()
 
 # Variables to export from this module
-VariablesToExport = '*'
+VariablesToExport = @()
 
 # Aliases to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no aliases to export.
-AliasesToExport = '*'
+AliasesToExport = @()
 
 # DSC resources to export from this module
 # DscResourcesToExport = @()
@@ -94,20 +103,13 @@ PrivateData = @{
 
     PSData = @{
 
-        # Tags applied to this module. These help with module discovery in online galleries.
-        # Tags = @()
+        Tags = @('Security', 'Hardening', 'Windows', 'Firewall', 'RDP', 'SMB', 'GroupPolicy', 'Intune')
 
-        # A URL to the license for this module.
-        # LicenseUri = ''
+        ProjectUri = 'https://github.com/yourGitHubUsername/Ghost'
 
-        # A URL to the main website for this project.
-        # ProjectUri = ''
+        LicenseUri = 'https://github.com/yourGitHubUsername/Ghost/blob/main/LICENSE'
 
-        # A URL to an icon representing this module.
-        # IconUri = ''
-
-        # ReleaseNotes of this module
-        # ReleaseNotes = ''
+        ReleaseNotes = 'v1.0.0 - Initial release with Windows hardening functions, Group Policy support, and Intune integration.'
 
         # Prerelease string of this module
         # Prerelease = ''
