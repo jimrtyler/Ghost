@@ -1,103 +1,129 @@
 <img src="https://github.com/user-attachments/assets/3592dff9-a204-4b92-82d0-8683c55e2584"  width="400" />
 
-## 👻 Ghost Security Module
-**Practical Windows + Azure Security Hardening Tool**
+## Ghost Security Module
+**Practical Windows Security Hardening Tool**
 
 [![PowerShell](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Security](https://img.shields.io/badge/Security-Hardening-red.svg)](https://github.com/jimrtyler/Ghost)
 
-> **Reduce your attack surface quickly and effectively.** Ghost provides practical security hardening across Windows endpoints and Azure cloud infrastructure, addressing common attack vectors with a simple, verifiable approach.
+> **Reduce your attack surface quickly and effectively.** Ghost provides practical security hardening across Windows endpoints with 33 exported functions covering direct configuration, Group Policy enforcement, and Microsoft Intune cloud deployment.
 
-## ⚠️ Important Disclaimers
+## Important Disclaimers
 
 - **No Security Guarantees**: Ghost reduces attack surface but cannot prevent all attacks or guarantee security
-- **Test First**: Always test in non-production environments to assess business impact
+- **Test First**: Always test in non-production environments to assess business impact. Use `-WhatIf` on `Set-Ghost` to preview changes before applying.
 - **Operational Impact**: Some functions disable services that may be required for business operations
 - **Part of Defense Strategy**: Ghost is one component of a comprehensive security approach
 - **Professional Consultation**: Consider consulting security professionals for enterprise deployments
 - **Your Responsibility**: You are responsible for understanding the impact of changes in your environment
 
-## 📊 The Reality: Preventable Attack Vectors
+## The Reality: Preventable Attack Vectors
 
-According to security research from NIST, FBI, and Microsoft, many successful attacks exploit commonly enabled Windows services and cloud misconfigurations that can be addressed through basic hardening measures.
+According to security research from NIST, FBI, and Microsoft, many successful attacks exploit commonly enabled Windows services and misconfigurations that can be addressed through basic hardening measures.
 
 ### Historical Attack Vectors Ghost Can Address:
 
-#### 💥 **SMBv1-Based Attacks (WannaCry, NotPetya)**
+#### SMBv1-Based Attacks (WannaCry, NotPetya)
 - **Attack Vector**: SMBv1 EternalBlue exploit (CVE-2017-0143)
 - **Ghost Mitigation**: `Set-Ghost -SMBv1` disables SMBv1 protocol
 - **Context**: Microsoft recommended disabling SMBv1 in 2014, yet many systems remained vulnerable
 
-#### 🎯 **Administrative Share Exploitation**
+#### Administrative Share Exploitation
 - **Attack Vector**: Lateral movement via C$, ADMIN$ shares in post-compromise scenarios
 - **Ghost Mitigation**: `Set-Ghost -AdminShares` disables administrative shares
 - **Context**: Commonly observed in ransomware lateral movement patterns
 
-#### 🌐 **RDP-Based Attacks**
+#### RDP-Based Attacks
 - **Attack Vector**: Credential stuffing, brute force attacks on Remote Desktop
-- **Ghost Options**: `Set-Ghost -RDP` (disable) or `Set-RDP -Enable -RandomizePort` (secure)
+- **Ghost Options**: `Set-Ghost -RDP` (disable) or `Set-RDP -Enable -RandomizePort` (secure with random port)
 - **Context**: FBI reports show significant increase in RDP attacks, particularly since 2020
 
-#### ⚡ **PowerShell Remoting Abuse**
+#### PowerShell Remoting Abuse
 - **Attack Vector**: Lateral movement using PowerShell remoting capabilities
 - **Ghost Mitigation**: `Set-Ghost -PSRemoting -WinRM` blocks remote execution vectors
 - **Context**: Frequently observed in advanced persistent threat campaigns
 
-#### 📱 **USB-Based Malware**
+#### USB-Based Malware
 - **Attack Vector**: AutoRun malware, malicious USB devices with payload delivery
 - **Ghost Mitigation**: `Set-Ghost -USBStorage -AutoRun` prevents USB-based infection vectors
 - **Context**: Remains effective attack vector against unprepared systems
 
-#### 📧 **Macro-Based Malware**
+#### Macro-Based Malware
 - **Attack Vector**: Malicious macros in Office documents as malware delivery mechanism
 - **Ghost Mitigation**: `Set-Ghost -Macros` disables macro execution
 - **Context**: Common delivery mechanism for trojans and ransomware families
 
-#### ☁️ **Azure Authentication Attacks**
-- **Attack Vector**: Legacy authentication protocols, weak conditional access policies
-- **Ghost Mitigation**: `Set-AzureGhost -SecurityDefaults -ConditionalAccess`
-- **Context**: Password spray and credential stuffing attacks against cloud services
+#### Network Reconnaissance
+- **Attack Vector**: LLMNR/NetBIOS poisoning, UPnP discovery, IPv6 probing, anonymous enumeration
+- **Ghost Mitigation**: `Set-Ghost -LLMNR -NetBIOS -UPnP -IPv6Privacy -AnonymousAccess`
+- **Context**: Commonly used for initial network reconnaissance and credential theft
 
-## 🛡️ Security Coverage
+## Security Coverage
 
-Ghost provides **16 Windows hardening functions** plus **comprehensive Azure security** through Microsoft Graph integration:
+Ghost provides **22 standalone hardening functions**, a bulk `Set-Ghost` command, an assessment function `Get-Ghost`, **6 Intune integration functions**, and **3 scheduled task management functions** (33 exported functions total).
 
-### 🖥️ Windows Endpoint Hardening
+### Windows Endpoint Hardening
 
-| Function | Addresses | Operational Impact |
-|----------|-----------|-------------------|
-| `Set-RDP` | Remote Desktop attacks | ⚠️ Blocks remote desktop access |
-| `Set-SMBv1` | Legacy SMB exploits | ✅ Minimal impact (legacy protocol) |
-| `Set-AutoRun` | USB malware, AutoPlay attacks | ⚠️ May affect legitimate removable media |
-| `Set-USBStorage` | USB-based attacks, data exfiltration | ⚠️ Prevents all USB storage devices |
-| `Set-Macros` | Document-based malware | ⚠️ Disables Office macro functionality |
-| `Set-PSRemoting` | PowerShell lateral movement | ⚠️ Blocks PowerShell remoting |
-| `Set-WinRM` | Windows Remote Management abuse | ⚠️ Blocks WinRM-based management |
-| `Set-LLMNR` | Credential theft, MITM attacks | ✅ Minimal impact (fallback protocol) |
-| `Set-NetBIOS` | Network poisoning attacks | ✅ Minimal impact (legacy protocol) |
-| `Set-AdminShares` | Lateral movement via shares | ⚠️ May affect some admin tools |
-| `Set-Telemetry` | Data collection, privacy exposure | ✅ Minimal operational impact |
-| `Set-GuestAccount` | Unauthorized access vectors | ✅ Minimal impact (rarely used) |
-| `Set-ICMP` | Network reconnaissance | ⚠️ Blocks ping functionality |
-| `Set-RemoteAssistance` | Unauthorized remote access | ⚠️ Disables remote assistance features |
-| `Set-NetworkDiscovery` | Network enumeration | ⚠️ May affect network browsing |
-| `Set-Firewall` | Network-based attacks | ⚠️ Core security control - test carefully |
+| Function | Addresses | `-Enable` | `-GroupPolicy` | Operational Impact |
+|----------|-----------|:---------:|:--------------:|-------------------|
+| `Set-RDP` | Remote Desktop attacks | Yes | Yes | Blocks remote desktop access |
+| `Set-SMBv1` | Legacy SMB exploits | Yes | Yes | Minimal (legacy protocol) |
+| `Set-AutoRun` | USB malware, AutoPlay attacks | Yes | Yes | May affect legitimate removable media |
+| `Set-USBStorage` | USB-based attacks, data exfiltration | Yes | Yes | Prevents all USB storage devices |
+| `Set-Macros` | Document-based malware | Yes | Yes | Disables Office macro functionality |
+| `Set-PSRemoting` | PowerShell lateral movement | Yes | -- | Blocks PowerShell remoting |
+| `Set-WinRM` | Windows Remote Management abuse | Yes | -- | Blocks WinRM-based management |
+| `Set-LLMNR` | Credential theft, MITM attacks | Yes | -- | Minimal (fallback protocol) |
+| `Set-NetBIOS` | Network poisoning attacks | Yes | -- | Minimal (legacy protocol) |
+| `Set-LDAP` | LDAP service exposure | Yes | -- | May affect directory services |
+| `Set-AdminShares` | Lateral movement via shares | Yes | Yes | May affect some admin tools |
+| `Set-Telemetry` | Data collection, privacy exposure | Yes | Yes | Minimal operational impact |
+| `Set-GuestAccount` | Unauthorized access vectors | Yes | Yes | Minimal (rarely used) |
+| `Set-ICMP` | Network reconnaissance | Yes | Yes | Blocks ping functionality |
+| `Set-RemoteAssistance` | Unauthorized remote access | Yes | -- | Disables remote assistance features |
+| `Set-NetworkDiscovery` | Network enumeration | Yes | -- | May affect network browsing |
+| `Set-Firewall` | Network-based attacks | Yes | -- | Core security control - test carefully |
+| `Set-UPnP` | UPnP/SSDP discovery attacks | Yes | Yes | May affect device discovery |
+| `Set-WindowsTimeService` | NTP reconnaissance | Harden/Default | Yes | Minimal operational impact |
+| `Set-ServiceBanners` | Information disclosure | Harden/Default | Yes | Minimal operational impact |
+| `Set-IPv6Privacy` | IPv6 reconnaissance vectors | Yes | Yes | Minimal operational impact |
+| `Set-AnonymousAccess` | Anonymous enumeration (LSA) | Restrict/Allow | Yes | May affect anonymous access workflows |
 
-### ☁️ Azure Cloud Security
+> **Note**: `Set-RDP` also supports `-RandomizePort` to change the RDP listening port to a random value between 3390-65535.
 
-| Function | Addresses | Requirements |
-|----------|-----------|-------------|
-| `Set-AzureSecurityDefaults` | Legacy auth, basic attacks | Azure AD tenant |
-| `Set-AzureConditionalAccess` | Advanced authentication attacks | Azure AD Premium |
-| `Set-AzurePrivilegedUsers` | Privilege escalation | Azure AD Premium |
+### Microsoft Intune Integration
 
-## 🚀 Quick Start
+| Function | Purpose |
+|----------|---------|
+| `Connect-IntuneGhost` | Authenticates to Microsoft Graph for Intune management |
+| `Set-IntuneGhost` | Deploys hardening settings as Intune policies |
+| `New-IntuneDeviceRestrictionPolicy` | Creates device restriction policies in Intune |
+| `New-IntuneEndpointSecurityPolicy` | Creates endpoint security policies in Intune |
+| `New-IntuneOfficePolicy` | Creates Office configuration policies in Intune |
+| `New-IntunePowerShellScript` | Uploads PowerShell scripts to Intune for deployment |
+
+### Scheduled Task Management
+
+| Function | Purpose |
+|----------|---------|
+| `Set-GhostTask` | Creates obfuscated scheduled tasks for Ghost operations (daily, weekly, monthly) |
+| `Get-GhostTask` | Lists all Ghost-managed scheduled tasks |
+| `Remove-GhostTask` | Removes Ghost-managed scheduled tasks |
+
+### Assessment & Bulk Operations
+
+| Function | Purpose |
+|----------|---------|
+| `Get-Ghost` | Scans and reports the current security posture of all monitored settings |
+| `Set-Ghost` | Disables multiple protocols/services in one command. Supports `-GroupPolicy`, `-Intune`, and `-WhatIf` |
+
+## Quick Start
 
 ### Security Assessment
 ```powershell
-# Load Ghost module from GitHub
-IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
+# Load Ghost module
+Import-Module ./Ghost.psm1
 
 # Check your current security posture
 Get-Ghost
@@ -105,80 +131,90 @@ Get-Ghost
 
 ### Basic Hardening (Test First!)
 ```powershell
-# Address common attack vectors with minimal business impact
+# Preview changes before applying (WhatIf support)
+Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -WhatIf
+
+# Apply low-impact hardening
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
 
 # For environments where USB and macros aren't needed
 Set-Ghost -USBStorage -AutoRun -Macros
 
+# Apply advanced hardening (UPnP, IPv6, anonymous access, service banners)
+Set-Ghost -UPnP -IPv6Privacy -AnonymousAccess -ServiceBanners -WindowsTimeService
+
 # Deploy via Group Policy for domain-wide enforcement
 Set-Ghost -SMBv1 -AutoRun -Macros -GroupPolicy
 
 # Deploy via Intune for cloud-managed devices
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -ICMP -Intune
-
-# Secure Azure environment (requires Microsoft Graph module)
-Connect-AzureGhost -Interactive
-Set-AzureGhost -SecurityDefaults
 ```
 
 ### Example Output
 ```
-RDP: Enabled                           # Consider impact before disabling
-SMBv1: Enabled                         # Safe to disable (legacy protocol)
-AutoRun/AutoPlay: Enabled              # Consider business USB usage
-USB Storage: Enabled                   # Evaluate data transfer needs
-Macros: Enabled                        # Assess Office macro requirements
+Get-Ghost scans your system and reports the status of each setting:
 
-📋 Protocols that can typically be safely disabled:
-- SMBv1 (legacy protocol, security risk)
-- LLMNR (fallback protocol, rarely needed)
-- NetBIOS (legacy protocol)
-- Telemetry (privacy enhancement)
+RDP: Enabled
+ICMP: Enabled
+LLMNR: Enabled
+NetBIOS: Enabled
+SMBv1: Enabled
+AutoRun/AutoPlay: Enabled
+USB Storage: Enabled
+Office Macros: Enabled
+Telemetry: Enabled
+Guest Account: Enabled
+Administrative Shares: Enabled
+UPnP (Device Host / SSDP): Enabled
+IPv6 / Privacy Extensions: Enabled
+Anonymous Access (LSA): Enabled
+...
 
-⚠️ Protocols requiring business impact assessment:
-- RDP (remote access method)
-- USB Storage (may affect legitimate usage)
-- Macros (may affect Office workflows)
+The following settings, features or services appear to be enabled and are candidates for hardening:
+ - RDP
+ - ICMP
+ - LLMNR
+ - SMBv1
+ ...
 
-🔧 Suggested safe start: Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry
+Suggestion: Set-Ghost -RDP -ICMP -LLMNR -SMBv1 ...
 ```
 
-## 🏢 Deployment Options: Choose Your Approach
+## Deployment Options: Choose Your Approach
 
 Ghost provides **three deployment methods** to match your environment and needs:
 
-### **🚀 Direct Configuration (Ghost Classic)**
+### Direct Configuration
 ```powershell
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry
 ```
-- ✅ **5 minutes** to deploy and verify
-- ✅ Works on any Windows system (domain, workgroup, cloud)
-- ✅ Immediate results and verification
-- ✅ No licensing or infrastructure requirements
-- ✅ Perfect for incident response and testing
+- Works on any Windows system (domain, workgroup, cloud)
+- Immediate results and verification
+- No licensing or infrastructure requirements
+- Perfect for incident response and testing
 
-### **🏛️ Group Policy Deployment**
+### Group Policy Deployment
 ```powershell
 Set-Ghost -RDP -SMBv1 -AutoRun -Macros -GroupPolicy
 ```
-- ✅ **Domain-wide enforcement** with centralized management
-- ✅ Automatic reapplication and inheritance
-- ✅ Built-in audit trails and compliance reporting
-- ✅ Prevents local administrator override
-- ✅ Ideal for traditional Active Directory environments
+- **Domain-wide enforcement** with centralized management
+- Automatic reapplication and inheritance
+- Built-in audit trails and compliance reporting
+- Prevents local administrator override
+- Ideal for traditional Active Directory environments
 
-### **☁️ Microsoft Intune Deployment**
+### Microsoft Intune Deployment
 ```powershell
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -ICMP -Intune
 ```
-- ✅ **Cloud-scale deployment** to thousands of devices
-- ✅ Modern device management for Azure AD joined systems
-- ✅ Cross-platform support (Windows, mobile devices)
-- ✅ Built-in compliance dashboards and reporting
-- ✅ Perfect for modern, cloud-first organizations
+- **Cloud-scale deployment** to thousands of devices
+- Modern device management for Azure AD joined systems
+- Built-in compliance dashboards and reporting
+- Perfect for modern, cloud-first organizations
 
-### **📊 Deployment Method Comparison**
+### Deployment Method Comparison
 
 | Feature | Direct | Group Policy | Intune |
 |---------|--------|-------------|--------|
@@ -191,7 +227,7 @@ Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -ICMP -Intune
 | **Audit Trail** | Manual logging | GP logs | Intune compliance |
 | **Licensing Cost** | Free | Windows licensing | Intune licensing |
 
-### **🎯 When to Use Each Approach:**
+### When to Use Each Approach:
 
 **Direct Configuration is ideal for:**
 - Small businesses (5-50 endpoints)
@@ -216,21 +252,22 @@ Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -ICMP -Intune
 - Organizations using Microsoft 365
 - Need for cloud-based compliance reporting
 
-## 📦 Installation Options
+## Installation Options
 
-### Option 1: Direct Execution (Recommended for Testing)
+### Option 1: Direct Import
 ```powershell
-# Load and test Ghost
-IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
+# Clone and import
+git clone https://github.com/jimrtyler/Ghost.git
+Import-Module ./Ghost/Ghost.psm1
 
 # Assess current state
 Get-Ghost
 
-# Apply low-impact hardening first  
+# Apply low-impact hardening first
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry
 ```
 
-### Option 2: Local Installation
+### Option 2: PSGallery Installation
 ```powershell
 # Download and import module
 Save-Module -Name Ghost -Path "C:\Security\Modules" -Repository PSGallery
@@ -247,16 +284,14 @@ Import-Module Ghost
 Set-Ghost -SMBv1 -AutoRun -Macros -GroupPolicy
 gpupdate /force
 
-# Deploy via Intune for cloud-managed devices  
+# Deploy via Intune for cloud-managed devices
 Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -Intune
-
-# Test with pilot group before broad deployment
 ```
 
-## 💼 Practical Use Cases
+## Practical Use Cases
 
-### 🏥 **Healthcare**: Compliance Support
+### Healthcare: Compliance Support
 ```powershell
 # Address common vulnerabilities with minimal workflow impact
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
@@ -265,13 +300,11 @@ Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
 Set-Ghost -SMBv1 -AutoRun -USBStorage -GroupPolicy
 
 # Deploy via Intune for cloud-managed medical devices
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -USBStorage -AutoRun -Intune
-
-# Secure Office 365 for patient data (requires evaluation)
-Set-AzureGhost -SecurityDefaults
 ```
 
-### 🏭 **Manufacturing**: OT/IT Security
+### Manufacturing: OT/IT Security
 ```powershell
 # Prevent network-based lateral movement
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -AdminShares
@@ -280,13 +313,14 @@ Set-Ghost -SMBv1 -LLMNR -NetBIOS -AdminShares
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -AdminShares -GroupPolicy
 
 # Use Intune for office systems, avoid production systems
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -USBStorage -AutoRun -Intune
 
 # Evaluate USB controls based on operational needs
 # Some manufacturing equipment may require USB access
 ```
 
-### 🏛️ **Government**: Risk Reduction
+### Government: Risk Reduction
 ```powershell
 # Comprehensive assessment first
 Get-Ghost
@@ -298,39 +332,46 @@ Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
 Set-Ghost -RDP -SMBv1 -AutoRun -USBStorage -Macros -GroupPolicy
 
 # Use Intune for unclassified cloud systems
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -Telemetry -Intune
-
-# Additional controls require operational impact assessment
 ```
 
-### 💰 **Financial Services**: Fraud Prevention
+### Financial Services: Fraud Prevention
 ```powershell
-# Focus on identity and access controls
-Set-AzureConditionalAccess -BlockLegacyAuth -RequireMFA
-
 # Endpoint controls based on business processes
-Set-Ghost -SMBv1 -LLMNR -NetBIOS
+Set-Ghost -SMBv1 -LLMNR -NetBIOS -AnonymousAccess -ServiceBanners
 
 # Deploy via Intune for consistent branch office management
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -USBStorage -AutoRun -Macros -Intune
 
 # Use Group Policy for trading floor systems
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -AdminShares -GroupPolicy
 ```
 
-## 🔬 Advanced Features
+## Advanced Features
 
-### 🎯 **Selective Hardening**
+### Selective Hardening
 ```powershell
 # Address specific threats individually
 Set-SMBv1 -Disable                    # Block SMBv1 exploits
 Set-RDP -Enable -RandomizePort         # Secure RDP with random port
 Set-Macros -Disable                   # Block document malware
 Set-LLMNR -Disable                    # Prevent credential theft
+Set-UPnP -Disable                     # Prevent UPnP discovery attacks
+Set-AnonymousAccess -Restrict          # Block anonymous enumeration
+Set-ServiceBanners -Harden             # Minimize information disclosure
+Set-IPv6Privacy -Disable               # Disable IPv6 recon vectors
+
+# Re-enable settings when needed
+Set-LLMNR -Enable                     # Restore LLMNR
+Set-NetBIOS -Enable                   # Restore NetBIOS
+Set-PSRemoting -Enable                # Restore PowerShell Remoting
 
 # Apply individual settings via Group Policy
 Set-RDP -Disable -GroupPolicy         # Domain-wide RDP blocking
 Set-SMBv1 -Disable -GroupPolicy       # Enterprise SMBv1 removal
+Set-UPnP -Disable -GroupPolicy        # Enterprise UPnP removal
 
 # Deploy specific settings via Intune
 Connect-IntuneGhost -Interactive
@@ -338,95 +379,86 @@ $Settings = @{ RDP = $true; SMBv1 = $true; USBStorage = $true }
 Set-IntuneGhost -Settings $Settings
 ```
 
-### 📊 **Assessment and Documentation**
+### Preview Changes with WhatIf
 ```powershell
-# Generate security assessment report
-Get-Ghost | Export-Csv -Path "SecurityAssessment-$(Get-Date -Format 'yyyy-MM-dd').csv"
+# Preview what Set-Ghost would do without making changes
+Set-Ghost -RDP -SMBv1 -LLMNR -NetBIOS -Macros -WhatIf
 
-# Azure security posture
-Get-AzureGhost | Out-File "AzureSecurityReport.txt"
+# Then apply when ready
+Set-Ghost -RDP -SMBv1 -LLMNR -NetBIOS -Macros
 ```
 
-### 🔄 **Verification and Rollback**
+### Scheduled Task Management
+```powershell
+# Create a daily task to kill all RDP sessions at 3:00 AM
+Set-GhostTask -KillAllSessions -Frequency Daily -Time "03:00"
+
+# Create a weekly task every Sunday at 2:00 AM
+Set-GhostTask -KillAllSessions -Frequency Weekly -Time "02:00" -DayOfWeek Sunday
+
+# Create a monthly task on the 1st of each month
+Set-GhostTask -KillAllSessions -Frequency Monthly -Time "01:00" -DayOfMonth 1
+
+# List all Ghost scheduled tasks
+Get-GhostTask
+
+# Remove Ghost scheduled tasks
+Remove-GhostTask
+```
+
+> **Note**: Ghost scheduled tasks use obfuscated names (disguised as common application update services) and are stored in `C:\Scripts`.
+
+### Intune Policy Management
+```powershell
+# Connect to Microsoft Graph (interactive or certificate-based)
+Connect-IntuneGhost -Interactive
+Connect-IntuneGhost -ClientId "xxx" -TenantId "yyy" -CertificateThumbprint "zzz"
+
+# Create individual Intune policies
+New-IntuneDeviceRestrictionPolicy     # Device restriction settings
+New-IntuneEndpointSecurityPolicy      # Endpoint security baselines
+New-IntuneOfficePolicy                # Office configuration policies
+New-IntunePowerShellScript            # Upload PowerShell scripts to Intune
+```
+
+### Verification and Rollback
 ```powershell
 # Verify changes (works with all deployment methods)
 Get-Ghost
 
 # Check Group Policy application
 gpresult /r
+Get-ItemProperty "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
 
-# Monitor Intune policy deployment
-# (Check Intune admin center for compliance status)
+# Check Intune policy deployment
+Get-MgContext  # Verify Graph connection
+# Monitor deployment in Intune admin center
 
 # Rollback specific changes if needed
 Set-RDP -Enable          # Re-enable RDP
 Set-USBStorage -Enable   # Re-enable USB storage
 Set-Macros -Enable       # Re-enable Office macros
+Set-LLMNR -Enable        # Re-enable LLMNR
+Set-NetBIOS -Enable      # Re-enable NetBIOS
+Set-PSRemoting -Enable   # Re-enable PowerShell Remoting
 ```
 
-## 📈 Business Impact
+## Configuration Examples
 
-### 💵 **Cost Considerations**
-- **Typical security incident costs**: Range from thousands to millions depending on scale and industry
-- **Ghost implementation cost**: Free open-source tool
-- **Time investment**: 5 minutes for basic hardening vs. weeks for policy deployment
-
-### ⚡ **Performance Benefits**
-- **Reduced attack surface**: Fewer services and protocols available for exploitation
-- **Faster incident response**: Proactive blocking vs. reactive cleanup
-- **Simplified security posture**: Clear visibility into enabled/disabled services
-- **Compliance support**: Demonstrable security improvements
-
-### 📊 **Measurable Security Improvement**
-- **Service reduction**: Eliminates entire classes of network-based attacks
-- **Protocol hardening**: Addresses commonly exploited legacy protocols
-- **Identity protection**: Azure integration provides cloud security controls
-- **Verification capability**: Built-in assessment and reporting functions
-
-## 🌐 Azure Cloud Integration
-
-### 🔐 **Microsoft Graph Security**
-Ghost integrates with Microsoft Graph API to provide Azure security assessment and hardening:
-
+### Small Business (5-50 employees)
 ```powershell
-# Connect to Azure tenant (requires appropriate permissions)
-Connect-AzureGhost -Interactive
+# Preview changes first
+Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -WhatIf
 
-# Enable Security Defaults (basic protection)
-Set-AzureSecurityDefaults -Enable
-
-# Configure Conditional Access (requires Azure AD Premium)
-Set-AzureConditionalAccess -BlockLegacyAuth -RequireMFA
-
-# Audit privileged users
-Set-AzurePrivilegedUsers -AuditOnly
-
-# Comprehensive Azure assessment
-Get-AzureGhost
-```
-
-### 🎯 **Identity-Focused Security**
-Modern attacks often target identity systems. Ghost's Azure integration addresses:
-- **Conditional Access Policies**: Control access based on risk signals
-- **Legacy Authentication**: Block older, less secure authentication methods
-- **Privileged Access**: Monitor and control administrative accounts
-- **Security Defaults**: Microsoft's baseline security recommendations
-
-## 🔧 Configuration Examples
-
-### 🏢 **Small Business** (5-50 employees)
-```powershell
 # Start with safe, high-impact changes
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry
 
-# Basic Azure security (if using Office 365)
-Set-AzureSecurityDefaults -Enable
-
 # For Office 365 Business Premium with Intune
+Connect-IntuneGhost -Interactive
 Set-Ghost -USBStorage -AutoRun -Intune
 ```
 
-### 🏭 **Medium Enterprise** (50-500 employees)  
+### Medium Enterprise (50-500 employees)
 ```powershell
 # Comprehensive assessment first
 Get-Ghost
@@ -438,19 +470,17 @@ Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
 Set-Ghost -RDP -SMBv1 -AutoRun -USBStorage -GroupPolicy
 
 # Use Intune for remote/cloud-managed devices
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -Intune
-
-# Advanced Azure controls (requires Azure AD Premium)
-Set-AzureGhost -SecurityDefaults -ConditionalAccess
 ```
 
-### 🌍 **Large Corporation** (500+ employees)
+### Large Corporation (500+ employees)
 ```powershell
 # Use Ghost for assessment and pilot testing
 Get-Ghost
 
 # Pilot with select systems (direct configuration)
-Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount
+Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry -GuestAccount -WhatIf
 
 # Deploy via Group Policy for domain infrastructure
 Set-Ghost -RDP -SMBv1 -AutoRun -USBStorage -Macros -GroupPolicy
@@ -460,11 +490,11 @@ gpupdate /force
 Connect-IntuneGhost -ClientId "xxx" -TenantId "yyy" -CertificateThumbprint "zzz"
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -ICMP -Intune
 
-# Enterprise Azure hardening (certificate-based auth)
-Set-AzureConditionalAccess -BlockLegacyAuth -RequireMFA
+# Apply advanced hardening
+Set-Ghost -UPnP -IPv6Privacy -AnonymousAccess -ServiceBanners -WindowsTimeService
 ```
 
-### 📡 **MITRE ATT&CK Framework Alignment**
+### MITRE ATT&CK Framework Alignment
 Ghost addresses these commonly observed techniques:
 
 | MITRE Technique | Ghost Function | Impact Assessment |
@@ -475,9 +505,60 @@ Ghost addresses these commonly observed techniques:
 | T1566.001 (Malicious Attachments) | `Set-Macros -Disable` | Medium - disables Office macros |
 | T1557.001 (LLMNR Poisoning) | `Set-LLMNR -Disable` | Low - minimal business impact |
 
-## 🛠️ Development & Contribution
+## Complete Function Reference
 
-### 🤝 **Contributing**
+### Hardening Functions (22)
+| Function | Parameters |
+|----------|-----------|
+| `Set-ICMP` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-RDP` | `-Enable`, `-Disable`, `-RandomizePort`, `-GroupPolicy` |
+| `Set-SMBv1` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-AutoRun` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-Macros` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-LLMNR` | `-Enable`, `-Disable` |
+| `Set-NetBIOS` | `-Enable`, `-Disable` |
+| `Set-LDAP` | `-Enable`, `-Disable` |
+| `Set-PSRemoting` | `-Enable`, `-Disable` |
+| `Set-Firewall` | `-Enable`, `-Disable` |
+| `Set-RemoteAssistance` | `-Enable`, `-Disable` |
+| `Set-NetworkDiscovery` | `-Enable`, `-Disable` |
+| `Set-USBStorage` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-WinRM` | `-Enable`, `-Disable` |
+| `Set-AdminShares` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-Telemetry` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-GuestAccount` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-UPnP` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-WindowsTimeService` | `-Harden`, `-Default`, `-GroupPolicy` |
+| `Set-ServiceBanners` | `-Harden`, `-Default`, `-GroupPolicy` |
+| `Set-IPv6Privacy` | `-Enable`, `-Disable`, `-GroupPolicy` |
+| `Set-AnonymousAccess` | `-Restrict`, `-Allow`, `-GroupPolicy` |
+
+### Bulk & Assessment (2)
+| Function | Parameters |
+|----------|-----------|
+| `Set-Ghost` | All 22 hardening switches + `-GroupPolicy`, `-Intune`, `-WhatIf` |
+| `Get-Ghost` | _(no parameters - scans and reports all settings)_ |
+
+### Intune Integration (6)
+| Function | Purpose |
+|----------|---------|
+| `Connect-IntuneGhost` | `-Interactive`, `-ClientId`, `-TenantId`, `-CertificateThumbprint` |
+| `Set-IntuneGhost` | `-Settings` (hashtable of hardening options) |
+| `New-IntuneDeviceRestrictionPolicy` | Creates device restriction policies |
+| `New-IntuneEndpointSecurityPolicy` | Creates endpoint security policies |
+| `New-IntuneOfficePolicy` | Creates Office configuration policies |
+| `New-IntunePowerShellScript` | Uploads PowerShell scripts to Intune |
+
+### Scheduled Tasks (3)
+| Function | Parameters |
+|----------|-----------|
+| `Set-GhostTask` | `-KillAllSessions`, `-Frequency`, `-Time`, `-DayOfWeek`, `-DayOfMonth` |
+| `Get-GhostTask` | _(lists all Ghost tasks)_ |
+| `Remove-GhostTask` | _(removes Ghost tasks)_ |
+
+## Development & Contribution
+
+### Contributing
 ```bash
 # Fork the repository
 git clone https://github.com/jimrtyler/Ghost.git
@@ -493,7 +574,7 @@ git checkout -b feature/new-hardening-function
 # Submit pull request with detailed description
 ```
 
-### 📋 **Development Roadmap**
+### Development Roadmap
 - [ ] **Enhanced Reporting**: Detailed compliance and risk assessment reports
 - [ ] **Intune Policy Templates**: Pre-built policy configurations for different industries
 - [ ] **Group Policy ADMX Templates**: Administrative templates for easier GP deployment
@@ -503,20 +584,23 @@ git checkout -b feature/new-hardening-function
 - [ ] **PowerShell DSC**: Desired State Configuration modules
 - [ ] **Configuration Manager**: SCCM integration for enterprise deployment
 
-## 📞 Support & Community
+## Support & Community
 
-### 🆘 **Getting Help**
+### Getting Help
 - **GitHub Issues**: [Report bugs or request features](https://github.com/jimrtyler/Ghost/issues)
 - **Documentation**: Comprehensive inline help with `Get-Help Set-Ghost -Full`
 - **Testing**: Always test in non-production environments first
 
-### 🔍 **Troubleshooting**
+### Troubleshooting
 ```powershell
 # Check current status (works with all deployment methods)
 Get-Ghost
 
 # Verify specific function results
 Get-Help Set-RDP -Examples
+
+# Preview changes before applying
+Set-Ghost -SMBv1 -LLMNR -NetBIOS -WhatIf
 
 # Check Group Policy application
 gpresult /r
@@ -529,21 +613,22 @@ Get-MgContext  # Verify Graph connection
 # Roll back changes if needed
 Set-RDP -Enable
 Set-USBStorage -Enable
+Set-LLMNR -Enable
 ```
 
-## 📜 License & Legal
+## License & Legal
 
-### ⚖️ **MIT License**
+### MIT License
 Free for commercial and personal use. See [LICENSE](LICENSE) file for full terms.
 
-### 🔒 **Security Disclaimer**
+### Security Disclaimer
 - Ghost is provided as-is for security hardening purposes
 - No warranties or guarantees regarding security effectiveness
 - Users are responsible for testing and validation in their environments
 - Authors are not responsible for operational impact or service disruption
 - This tool does not replace comprehensive security planning and professional consultation
 
-### 🏅 **Credits**
+### Credits
 - **Created by**: Jim Tyler (@jimrtyler)
 - **Contributors**: Security community members and testers
 - **Research**: Based on public security research, vendor recommendations, and community feedback
@@ -551,11 +636,11 @@ Free for commercial and personal use. See [LICENSE](LICENSE) file for full terms
 
 ---
 
-**🎯 Start with assessment, choose your deployment method, then harden systematically.**
+**Start with assessment, choose your deployment method, then harden systematically.**
 
 ```powershell
 # Begin with a security assessment
-IEX(Invoke-WebRequest 'https://raw.githubusercontent.com/jimrtyler/Ghost/refs/heads/main/Ghost.ps1')
+Import-Module ./Ghost.psm1
 Get-Ghost
 
 # Choose your deployment approach:
@@ -563,11 +648,10 @@ Get-Ghost
 # Direct (immediate, single device)
 Set-Ghost -SMBv1 -LLMNR -NetBIOS -Telemetry
 
-# Group Policy (domain-wide enforcement)  
+# Group Policy (domain-wide enforcement)
 Set-Ghost -RDP -SMBv1 -AutoRun -Macros -GroupPolicy
 
 # Intune (cloud-managed devices)
+Connect-IntuneGhost -Interactive
 Set-Ghost -RDP -SMBv1 -USBStorage -AutoRun -Intune
 ```
-
-**⭐ Star this repository if Ghost helped improve your security posture!**
